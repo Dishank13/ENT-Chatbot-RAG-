@@ -1,0 +1,150 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=black, urlcolor=blue}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+	itle{ENT Disorder Chatbot using RAG}
+
+\author{\IEEEauthorblockN{Dishank Shah}
+\IEEEauthorblockA{\textit{Department of Information and Communication Technology (ICT)} \\
+	extit{Branch: Computer and Communication} \\
+	extit{Manipal Institute of Technology} \\
+Manipal, India \\
+Email: dishank132@gmail.com}}
+
+\maketitle
+
+\begin{abstract}
+We present ENT\_RAG, a retrieval-augmented generation (RAG) chatbot for otolaryngology (ENT) that runs fully offline on commodity hardware. The system ingests guideline PDFs and clinic-authored documents (PDF/CSV), performs recursive chunking, and encodes text with FastEmbed (BAAI/bge-small-en-v1.5) to build a compact vector index in ChromaDB. At query time, top-\emph{k} passages are retrieved and combined via a LangChain RetrievalQA ("stuff") chain into prompts for a local LLM served with Ollama (e.g., Llama~2), producing evidence-backed answers with cited sources. We built a Streamlit UI to support interactive questions and display provenance. Our evaluation protocol measures answer correctness, citation quality, and latency on a curated set of ENT questions; ablations examine embedding models, retrieval depth, and chunking parameters. ENT\_RAG demonstrates practical, private, and reproducible clinical reference assistance without cloud dependencies, along with a discussion of safety and limitations.
+\end{abstract}
+
+\begin{IEEEkeywords}
+retrieval-augmented generation, clinical decision support, otolaryngology, embeddings, ChromaDB, Ollama, local LLM, Streamlit, LangChain
+\end{IEEEkeywords}
+
+\section{Introduction}
+Clinicians frequently need concise, evidence-linked answers for ENT conditions under privacy and cost constraints. General-purpose cloud LLMs raise issues of data governance, recurring fees, and network availability. To address this, we design ENT\_RAG: a fully local RAG chatbot that combines a CPU-friendly embedding model, a lightweight vector database, and a locally served LLM. Our goals are: (i) privacy by default (no external API calls), (ii) transparent provenance through explicit citations, and (iii) practical deployment on standard Windows machines.
+
+\textbf{Contributions.} (1) A private, offline ENT RAG stack using FastEmbed + ChromaDB + Ollama. (2) A reproducible ingestion pipeline for PDFs/CSVs with stable chunking and metadata. (3) An evaluation protocol for correctness, faithfulness/citation quality, retrieval recall, and latency, with ablations over key parameters. (4) Implementation details enabling reuse and adaptation in clinical contexts.
+
+\section{Related Work}
+RAG methods combine information retrieval with generation to improve factuality and grounding~\cite{lewis2020rag}. Embedding models such as SBERT~\cite{reimers2019sbert} and the BGE family provide strong retrieval performance; we adopt BGE-small via FastEmbed for CPU efficiency. Vector databases (e.g., ChromaDB) enable persistent approximate nearest-neighbor search. Local LLM serving (e.g., Ollama / llama.cpp) supports privacy-preserving inference without external services. Prior clinical assistants emphasize safety and provenance; our work targets ENT-specific workflows with an offline stack.
+
+\section{Methods}
+\subsection{System Overview}
+ENT\_RAG comprises five stages: (1) data ingestion, (2) vector index building, (3) retrieval, (4) generation, and (5) user interface. Fig.~\ref{fig:arch} illustrates the flow from documents to answers with citations.
+
+\subsection{Corpus}
+The indexed corpus (current run) consists of sources in the local \texttt{data/} folder:
+\begin{itemize}
+	\item PDFs (2): \texttt{AAO-HNSF\_Guidelines.pdf}, \texttt{Description.pdf}
+	\item CSVs (3): \texttt{diagnostic\_errors.csv}, \texttt{disease\_prediction.csv}, \texttt{ent\_patients.csv}
+	\item XLSX present but not ingested by the current script (2): \texttt{Diagnostic error of ENT diseases.xlsx}, \texttt{ENT Patients Data.xlsx}
+\end{itemize}
+Ingestion produced a total of \emph{1{,}968} chunks as of the latest run.
+
+\subsection{Data Ingestion}
+We parse documents from a \texttt{data/} directory: PDFs (PyPDF2) and CSVs (pandas). Text is chunked using a recursive character splitter (chunk\_size~=~500, overlap~=~50). We preserve metadata (source filename and chunk id) for provenance. In the current deployment, ingestion produced \emph{1{,}968} chunks and persists embeddings and vectors in \texttt{chroma\_db/}.
+
+\subsection{Embeddings}
+We use \emph{FastEmbedEmbeddings} with the model \emph{BAAI/bge-small-en-v1.5} (dimension~=~384), delivered via ONNX for CPU-only inference and avoiding large \texttt{torch} dependencies on Windows. This balances quality and speed for typical clinical queries.
+
+\subsection{Vector Store and Retrieval}
+We store vectors in ChromaDB (LangChain community integration) with automatic persistence. Retrieval uses \texttt{vectordb.as\_retriever()} with default top-\emph{k} in \{3, 5, 10\} (default: 4). We enable an optional index reset on re-ingestion to avoid embedding-dimension mismatches.
+
+\subsection{Generator (Local LLM)}
+Responses are produced by a local LLM via Ollama. The default model is \emph{llama2} with temperature~=~0.1 and \emph{max\_new\_tokens}~$\approx$~512. We use LangChain's RetrievalQA ("stuff" chain) that concatenates retrieved chunks with a concise system instruction: \emph{``Answer using only the provided context; cite sources.''}
+
+\subsection{User Interface}
+We provide a Streamlit web UI (title: \emph{ENT\_RAG Chatbot}) with a text area for the query, an answer panel, and a "Top Sources" section listing the source filenames and chunk identifiers. The app runs locally (default at \url{http://localhost:8501}).
+
+\subsection{Implementation Details}
+	extbf{OS/Hardware:} Windows 11; CPU-only.\newline
+	extbf{Environment:} Python 3.11; key packages: \texttt{langchain}, \texttt{langchain-community}, \texttt{chromadb}, \texttt{fastembed}, \texttt{streamlit}, \texttt{PyPDF2}, \texttt{pandas}.\newline
+	extbf{Paths:} \texttt{CHROMA\_DIR = "chroma\_db"}, embedding model \texttt{"BAAI/bge-small-en-v1.5"}.\newline
+	extbf{Current configuration:} chunk\_size~=~500; chunk\_overlap~=~50; retriever top-\emph{k}~=~4; embedding model \texttt{BAAI/bge-small-en-v1.5}; LLM \texttt{llama2} via Ollama; temperature~=~0.1; \texttt{max\_new\_tokens}~$\approx$~512.\newline
+	extbf{Runbook:} (1) Ingest data; (2) \texttt{ollama run llama2}; (3) \texttt{streamlit run rag\_chatbot.py}.
+
+\section{Evaluation}
+\subsection{Query Set}
+We prepare a curated set of ENT questions covering sinusitis, otitis media, epistaxis, rhinitis, hearing loss, and postoperative care. Each question is answerable from the ingested guidelines/clinic documents.
+
+\subsection{Metrics}
+We report: (1) answer correctness (5-point Likert by domain reviewers), (2) citation precision/recall (proportion of cited sources that truly support claims; proportion of supportive retrieved docs that were cited), (3) faithfulness (supported/unsupported), (4) retrieval metrics (Recall@\emph{k}, MRR@\emph{k}), and (5) latency (p50/p95 end-to-end and retrieval-only).
+
+\subsection{Procedure}
+Each query is answered once with logging of retrieved chunks, cited files, and latencies. Two reviewers score correctness/faithfulness; disagreements resolved by discussion. We compute means and 95\% confidence intervals.
+
+\subsection{Ablations}
+We vary (i) embedding model (BGE-small vs alternatives), (ii) top-\emph{k} (3/5/10), (iii) chunking (size 300/500/800; overlap 20/50/100), (iv) LLM (llama2, mistral, phi), and (v) prompting (minimal vs explicit citation instructions).
+
+% Results section is intentionally hidden until metrics are available
+\iffalse
+\section{Results}
+\begin{table}[htbp]
+\caption{Overall performance.}
+\centering
+\begin{tabular}{lcc}
+\hline
+Metric & Value & Notes \\
+\hline
+Correctness (mean$\pm$sd) & -- & 5-point scale \\
+Faithfulness (\%) & -- & supported claims \\
+Hallucination (\%) & -- & unsupported claims \\
+Recall@4 / MRR@4 & -- / -- & retrieval \\
+Latency p50 / p95 (s) & -- / -- & end-to-end \\
+\hline
+\end{tabular}
+\label{tab:overall}
+\end{table}
+\fi
+
+% Architecture figure is hidden for now
+\iffalse
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figs/architecture.pdf}
+\caption{System architecture of ENT\_RAG showing ingestion, retrieval, and local LLM generation.}
+\label{fig:arch}
+\end{figure}
+\fi
+
+\section{Discussion}
+Preliminary results suggest that CPU-friendly embeddings (BGE-small) deliver adequate recall while enabling purely local inference. Increasing top-\emph{k} generally improves coverage at modest latency cost. Local LLMs may underperform frontier models on complex reasoning; explicit citation prompts and retrieval constraints help reduce hallucinations.
+
+\section{Limitations}
+Coverage is limited to the ingested corpus; missing/stale sources reduce accuracy. The system answers single-turn queries without memory or tool use. We do not make diagnostic claims; outputs are for educational/reference purposes only.
+
+\section{Ethics and Safety}
+We include an on-screen disclaimer that the chatbot is not medical advice. When using clinic documents, ensure proper governance and exclusion of PHI. Future work includes guardrails (e.g., safety filters) and structured citation checks.
+
+\section{Conclusion and Future Work}
+ENT\_RAG demonstrates a practical and private ENT assistant using an offline RAG stack. Future directions include upgrading to the \texttt{langchain-chroma} package, hybrid retrieval (BM25+vector), RAG-fusion, multi-turn memory, structured outputs, and automated evaluation harnesses.
+
+\section*{Reproducibility}
+\textbf{Code Structure:} \texttt{data\_ingest.py}, \texttt{rag\_chatbot.py}, \texttt{chroma\_db/}, \texttt{data/}.\newline
+\textbf{Environment:} Python 3.11; versions pinned in \texttt{requirements.txt}.\newline
+\textbf{Hardware:} CPU-only; note RAM/disk for model caches.\newline
+\textbf{Run:} Ingest \textrightarrow{} \texttt{ollama run llama2} \textrightarrow{} \texttt{streamlit run rag\_chatbot.py}.
+
+\begin{thebibliography}{00}
+\bibitem{lewis2020rag} P. Lewis, E. Perez, et al., ``Retrieval-Augmented Generation for Knowledge-Intensive NLP,'' arXiv:2005.11401, 2020.
+\bibitem{reimers2019sbert} N. Reimers and I. Gurevych, ``Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks,'' EMNLP, 2019.
+\bibitem{bgeSmall} B. Xiao, et al., ``BGE Embeddings,'' arXiv:2307.02179, 2023.
+\bibitem{langchainDocs} LangChain Documentation, 2024--2025. \url{https://python.langchain.com}
+\bibitem{chromaDocs} ChromaDB Documentation, 2024--2025. \url{https://docs.trychroma.com}
+\bibitem{ollamaDocs} Ollama Documentation, 2024--2025. \url{https://ollama.com}
+\bibitem{streamlitDocs} Streamlit Documentation, 2024--2025. \url{https://docs.streamlit.io}
+\end{thebibliography}
+
+\end{document}

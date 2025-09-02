@@ -1,0 +1,14 @@
+# Core RAG chatbot dependencies
+openai
+langchain
+langchain-community
+# For local LLMs via Ollama (https://ollama.com/)
+# You must install Ollama separately and pull a model (e.g., llama2, mistral, phi)
+chromadb
+streamlit
+pandas
+PyPDF2
+huggingface_hub
+unstructured
+# Fast, torch-free embeddings backend used in both ingestion and app
+fastembed
